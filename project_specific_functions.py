@@ -11,44 +11,8 @@ from matplotlib.colors import ListedColormap, Normalize
 from sklearn.model_selection import train_test_split
 from statsmodels.stats.outliers_influence import variance_inflation_factor as VIF
 import time
+from sklearn.model_selection import train_test_split
 
-
-def Create_Regex_Count(Dataframe_Old, Column_Location, Regex, Associated_Count_Location = None, Identifying_Column_Location = None, **re_kwargs):
-	"""Looks for Regex in column and creates counter variable for how many times it happened"""
-	counter = Counter()
-	if (Associated_Count_Location != None) and (Identifying_Column_Location != None):	
-		for index, row in enumerate(Dataframe_Old.values):
-			if re.search(Regex, row[Column_Location], **re_kwargs):
-				counter[row[Identifying_Column_Location]] += row[Associated_Count_Location]
-			
-	elif (Associated_Count_Location != None) and (Identifying_Column_Location == None):
-		for index, row in enumerate(Dataframe_Old.values):
-			if re.search(Regex, row[Column_Location], **re_kwargs):
-				counter[row[index]] += row[Associated_Count_Location]
-			
-	elif (Associated_Count_Location == None) and (Identifying_Column_Location != None):
-		for index, row in enumerate(Dataframe_Old.values):
-			if re.search(Regex, row[Column_Location], **re_kwargs):
-				counter[row[Identifying_Column_Location]] += 1
-	
-	else:
-		for index, row in enumerate(Dataframe_Old.values):
-			if re.search(Regex, row[Column_Location], **re_kwargs):		
-				counter[index] += 1
-
-
-	count_frame = pd.DataFrame.from_dict(counter, orient = "index")
-	count_frame.columns = [Regex + "_count"]
-	
-	if Identifying_Column_Location != None:
-		Dataframe_Old = Dataframe_Old.join(count_frame, on = Dataframe_Old.columns[Identifying_Column_Location], how = "left", lsuffix = "_0", rsuffix="_1")
-	else:
-		Dataframe_Old = Dataframe_Old.join(count_frame, how = "left", lsuffix = "_0", rsuffix="_1")
-
-	updated_frame = Dataframe_Old.copy()	
-	updated_frame.iloc[:,-1].fillna(value=0, inplace = True)
-
-	return updated_frame
 
 
 def Create_Dummy_From_Count_Above_Threshold(Dataframe_Old, Column, Threshold = 0):
@@ -219,7 +183,7 @@ def Return_Most_Certain_Classification_Data(X, y, Model, Certainty_Thresh = 0, F
     return certain_predictors, certain_response
 
 
-def Plot_Decision_Boundaries_2D(X1, X2, y , Estimator, Test_Size = 0.3, Random_State = None, Scale = True , Colour_Map = plt.cm.coolwarm, Bright_Colour_Map = plt.cm.afmhot, Alpha_Train = 1, Alpha_Test = 0.6, Certainty_Threshold = None):
+def Plot_Decision_Boundaries_2D(X1, X2, y , Estimators, Test_Size = 0.3, Random_State = None, Scale = True , Colour_Map = plt.cm.coolwarm, Bright_Colour_Map = plt.cm.afmhot, Alpha_Train = 1, Alpha_Test = 0.6, Certainty_Threshold = None, Variable_Names = ("Variable1","Variable2"), Delta = 0.02):
     
     def Return_Most_Certain_Classification_Data(X, y, Model, Certainty_Thresh = 0, Fit_First = False):
     
@@ -259,7 +223,7 @@ def Plot_Decision_Boundaries_2D(X1, X2, y , Estimator, Test_Size = 0.3, Random_S
     #Preprocess the data if needed:
     X1, X2 = StandardScaler().fit_transform(X1), StandardScaler().fit_transform(X2)
 
-    delta = 0.02 #Step size in the mesh
+    delta = Delta #Step size in the mesh
 
     figure = plt.figure(figsize = (12,8))
 
@@ -281,76 +245,98 @@ def Plot_Decision_Boundaries_2D(X1, X2, y , Estimator, Test_Size = 0.3, Random_S
 
     X_train, X_test, y_train, y_test = train_test_split(Full_combined[:,[0,1]], Full_combined[:,2], test_size = Test_Size, random_state = Random_State)
 
-
-    ax1 = plt.subplot(1,2,1)
-
-    ax1.set_title("Input Data")
-    #Plot Training data
-    scat = ax1.scatter(X_train[:, 0], X_train[:, 1], c = y_train, cmap = col_map_bright, edgecolors = 'k', alpha= Alpha_Train)
-    #And testing data
-    ax1.scatter(X_test[:, 0], X_test[:, 1], c = y_test, cmap = col_map_bright, edgecolors = 'k', alpha =Alpha_Test)
-
-    ax1.set_xlim(xx.min(), xx.max())
-    ax1.set_ylim(yy.min(), yy.max())
-
-    ax1.set_xticks(())
-    ax1.set_yticks(())
-
-
-    #Now for the classifier
-
-    ax2 = plt.subplot(1,2,2)
-
-    model = Estimator.fit(X_train, y_train)
-    score = model.score(X_test, y_test)
-
-    #Plot the decision boundary. For that, we will assign a colour to each point 
-    # in the mesh [x1_min, x1_max]*[x2_min, x2_max]
+    #Get a figure and axes based on how many estimators (1 or multiple there are)
+    #Multiple estimators
+    if isinstance(Estimators, (list, type(np.array))):
+        n_rows = len(Estimators)
     
-    if hasattr(model, "decision_function"):
-        Z = model.decision_function(np.c_[xx.ravel(), yy.ravel()])
 
-    elif hasattr(model, "predict_proba"):
-        Z = model.predict_proba(np.c_[xx.ravel(), yy.ravel()])
-    
+        fig, axes = plt.subplots(nrows = n_rows, ncols= 2, sharex= True, sharey= True, figsize = (12,n_rows*4)) 
+    #One estimator
     else:
-        print("This Estimator doesn't have a decision_function attribute and can't predict probabilities")
-
-    Z= np.argmax(Z, axis = 1)  
-    Z_uniques = np.unique(Z)
+        Estimators = np.array([Estimators])
+        fig, axes = plt.subplots(1,2, figsize = (12,8))
+        axes = np.array([axes])
     
-    #Put the result in a colourplot
+    for axs, Estimator in zip(axes[:], Estimators):
+        
+        ax1, ax2 = axs[0], axs[1]
+        
+        ax1.set_title("Input Data")
+        #Plot Training data
+        scat = ax1.scatter(X_train[:, 0], X_train[:, 1], c = y_train, cmap = col_map_bright, edgecolors = 'k', alpha= Alpha_Train)
+        #And testing data
+        ax1.scatter(X_test[:, 0], X_test[:, 1], c = y_test, cmap = col_map_bright, edgecolors = 'k', alpha =Alpha_Test)
 
-    Z = Z.reshape(xx.shape)
+        ax1.set_xlim(xx.min(), xx.max())
+        ax1.set_ylim(yy.min(), yy.max())
+
     
-    contour = ax2.contourf(xx, yy, Z, cmap = col_map, alpha=0.9)
+        
+        ax1.set_xlabel(Variable_Names[0])
+        ax1.set_ylabel(Variable_Names[1])
 
-    #Plot also the training data
-    ax2.scatter(X_train[:, 0], X_train[:, 1], c = y_train, cmap = col_map_bright, edgecolors = 'k', alpha= Alpha_Train)
-    #And testing data
-    ax2.scatter(X_test[:, 0], X_test[:, 1], c = y_test, cmap = col_map_bright, edgecolors = 'k', alpha = Alpha_Test)
 
-    ax2.set_xlim(xx.min(), xx.max())
-    ax2.set_ylim(yy.min(), yy.max())
+        #Now for the classifier
 
-    ax2.set_xticks(())
-    ax2.set_yticks(())
+        model = Estimator.fit(X_train, y_train)
+        score = model.score(X_test, y_test)
 
-    ax2.text(xx.max() - .3, yy.min() + .3, ('%.2f' % score).lstrip('0'), size=15, horizontalalignment='right')
+        #Plot the decision boundary. For that, we will assign a colour to each point 
+        # in the mesh [x1_min, x1_max]*[x2_min, x2_max]
+        
+        if hasattr(model, "decision_function"):
+            Z = model.decision_function(np.c_[xx.ravel(), yy.ravel()])
 
-    cb1 = plt.colorbar(scat, spacing = "proportional", ax = ax1, ticks = np.arange(len(unique_classes)))
-    cb1.ax.set_yticklabels(unique_classes)
+        elif hasattr(model, "predict_proba"):
+            Z = model.predict_proba(np.c_[xx.ravel(), yy.ravel()])
+        
+        else:
+            print("This Estimator doesn't have a decision_function attribute and can't predict probabilities")
 
-    print("Unique Predictions: {}".format(unique_classes[Z_uniques]))
-    
-    cb2 = plt.colorbar(contour, spacing = "proportional", ax=ax2, ticks = np.arange(len(unique_classes)))
-    cb2.ax.set_yticklabels(unique_classes)
-    
-    #Also print the score of the model
-    print(score)
+        Z = np.argmax(Z, axis = 1)  
+        Z_uniques = np.unique(Z)
+        
+        unique_predictions = unique_classes[Z_uniques]
+        
+        #Put the result in a colourplot
 
-    plt.tight_layout()
-    plt.show()
+        Z = Z.reshape(xx.shape)
+        
+        contour = ax2.pcolormesh(xx, yy, Z, vmin = Z.min(), vmax= Z.max(), cmap = col_map, alpha=0.7)
+
+        #Plot also the training data
+        ax2.scatter(X_train[:, 0], X_train[:, 1], c = y_train, cmap = col_map_bright, edgecolors = 'k', alpha= Alpha_Train)
+        #And testing data
+        ax2.scatter(X_test[:, 0], X_test[:, 1], c = y_test, cmap = col_map_bright, edgecolors = 'k', alpha = Alpha_Test)
+
+        ax2.set_xlim(xx.min(), xx.max())
+        ax2.set_ylim(yy.min(), yy.max())
+
+        
+        ax2.set_xlabel(Variable_Names[0])
+        ax2.set_ylabel(Variable_Names[1])
+        ax2.set_title(str(Estimator))
+
+        ax2.text(xx.max() - .3, yy.min() + .3, ('%.2f' % score).lstrip('0'), size=15, horizontalalignment='right')
+
+        cb1 = plt.colorbar(scat, spacing = "proportional", ax = ax1, ticks = np.arange(len(unique_classes)))
+        cb1.ax.set_yticklabels(unique_classes)
+
+        print("Unique Predictions: {}".format(unique_classes[Z_uniques]), "for: {}".format(Estimator))
+        
+        ticks = np.linspace(Z.min(), Z.max(), len(unique_predictions))
+
+        cb2 = plt.colorbar(contour, spacing = "proportional", ax=ax2, ticks = ticks)
+        cb2.ax.set_yticklabels(unique_predictions)
+        
+        #Also print the score of the model
+        print("Model Score:",score, "\n")
+
+    plt.tight_layout(rect = [0, 0.03, 1, 0.95])
+    fig.suptitle("Data and Classification Boundaries", fontsize =20)
+
+    return fig
 
 def Remove_Highly_Collinear_Variables(Pandas_Design_Matrix, VIF_Threshold=5, Display_Indicies = True, Return_Scores = False, Verbose = False):
     """
@@ -416,17 +402,25 @@ def Remove_Highly_Collinear_Variables(Pandas_Design_Matrix, VIF_Threshold=5, Dis
     print("\n", "Number of Dropped Variables:", len(VIF_scores), "\n")
     #if wanted, display all the values of the high VIF_scores        
     
-    if Return_Scores:
+    if Return_Scores and Display_Indicies:
         print("VIF Scores above threshold:", VIF_scores,"\n")
-    if Display_Indicies:
         print("Dropped Columns list:", column_names)
+        return PDM_copy, VIF_scores, column_names
     
+    elif Display_Indicies:
+        print("Dropped Columns list:", column_names)
+        return PDM_copy, column_names
+    
+    elif Return_Scores:
+        print("VIF Scores above threshold:", VIF_scores,"\n")
+        return PDM_copy, VIF_scores  
+   
+    else:
+        return PDM_copy
 
-    return PDM_copy
 
 
-
-def Create_Regex_Counts(Dataframe, Regexes, Group_By, Column_Name, Sort=True, Join = False, **Regex_Kwargs):
+def Create_Regex_Counts(Dataframe, Regexes, Group_By, Search_Column, Sort=True, Join = False, Associated_Count_Column = None,  **Regex_Kwargs):
     
     
     grouped = Dataframe.groupby(by = Group_By, sort = Sort)
@@ -436,18 +430,26 @@ def Create_Regex_Counts(Dataframe, Regexes, Group_By, Column_Name, Sort=True, Jo
     else:
         DF_new = pd.DataFrame(index = list(grouped.groups.keys()))
 
-
-    def Count_Regex_In_Group(Group_, Regex_, Column_Name_, **Kwargs_):
+    if Associated_Count_Column == None:
+        def Count_Regex_In_Group(Group_, Regex_, Search_Column_, Associated_Count_Column_  , **Kwargs_):
             
-            BOOL_contains = Group_[Column_Name_].str.contains(Regex_, **Kwargs_)
+            BOOL_contains = Group_[Search_Column_].str.contains(Regex_, **Kwargs_)
             INT_count = BOOL_contains.sum()
-            
+
             return INT_count
+    else:
+        def Count_Regex_In_Group(Group_, Regex_, Search_Column_, Associated_Count_Column_  , **Kwargs_):
+            
+            BOOL_contains = Group_[Search_Column_].str.contains(Regex_, **Kwargs_)
+            selected_rows_to_sum = Group_[Associated_Count_Column_][BOOL_contains]
+            INT_count = selected_rows_to_sum.sum()
+
+            return INT_count        
 
     for idx, regex in enumerate(Regexes,1):
         t0 = time.time() #timeit
         
-        S_group_regex_counts = grouped.apply(Count_Regex_In_Group, Regex_= regex, Column_Name_ =Column_Name, **Regex_Kwargs)
+        S_group_regex_counts = grouped.apply(Count_Regex_In_Group, Regex_= regex, Search_Column_ =Search_Column, Associated_Count_Column_ = Associated_Count_Column, **Regex_Kwargs)
         S_group_regex_counts = S_group_regex_counts.rename(str(regex) +"_count")
         
         
@@ -455,7 +457,7 @@ def Create_Regex_Counts(Dataframe, Regexes, Group_By, Column_Name, Sort=True, Jo
         DF_new = DF_new.join(S_group_regex_counts, how ="left")
         
         t1 = time.time() #timeit
-        print("Made Regex count",str(idx) +":", str(regex)+ "_count","in:", t1-t0, "seconds")
+        print("Made Regex count",str(idx) +":", str(regex)+ "_count","in:", '{0:.3f}'.format(t1-t0), "seconds")
         
 
     return DF_new
@@ -475,16 +477,19 @@ def Select_Names_From_Value_Counts(Series, Upper, Lower, Max_Names = 20):
     return names
 
 
-import numpy as np
 
-def Lift_Score(X, y, Estimator,  Target_Class, Portion_Targeted = 0.1, Train_Test_Split =True, Test_Size=0.3):
+
+def Lift_Score(X, y, Estimator,  Target_Class, Portion_Targeted = 0.1, Train_Test_Split =True, Test_Size=0.3, Random_State =None, Fit_First = False, Stratify = None):
         
     if Train_Test_Split:
-        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size =Test_Size)
+        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size =Test_Size, random_state= Random_State, stratify = Stratify)
     else:
         X_train, X_test, y_train, y_test = X, X, y, y
-
-    model = Estimator.fit(X_train, y_train)
+    
+    if Fit_First:    
+        model = Estimator.fit(X_train, y_train)
+    else:
+        model = Estimator
 
     #Find which column in predictions to look at for ranking
     class_index = np.where(model.classes_ == Target_Class)[0][0]
@@ -529,12 +534,11 @@ def Lift_Score(X, y, Estimator,  Target_Class, Portion_Targeted = 0.1, Train_Tes
     return lift_score
 
 
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
-import numpy as np
 
 
-def Plot_Lift_Curve(X, y, Estimator, Target_Class = None, Number_of_Splits = 50, Train_Test_Split = True, Test_Size =0.3, Random_State = None):
+
+
+def Plot_Lift_Curve(X, y, Estimators, Target_Class = None, Number_of_Splits = 50, Train_Test_Split = True, Test_Size =0.3, Random_State = None, Stratify = None):
     """
     Inputs Preictors and Response and Plots the corresponding lift curve
     i.e the True positive rate given a change in the threshold for targeting
@@ -549,84 +553,112 @@ def Plot_Lift_Curve(X, y, Estimator, Target_Class = None, Number_of_Splits = 50,
 
     """
     #Split the Data,if wanted, so that results aren't subject to overfitting
+    #Set up figure for axes
+    
     if Train_Test_Split:
-        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size = Test_Size, random_state = Random_State)
+        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size = Test_Size, random_state = Random_State, stratify = Stratify)
     else:
         X_train, X_test, y_train, y_test = X, X, y, y
 
-    #Fit the model
-    model = Estimator.fit(X_train,y_train)
+    
+    
+    
+    if isinstance(Estimators, (list, type(np.array))):
+        number_of_axes = len(Estimators)
+        
+        if number_of_axes%2 ==0:
+            length_axis_0 = number_of_axes/2
+        else:
+            length_axis_0 = (number_of_axes//2)+1
 
-    #Get predicted classifications
-    predictions = model.predict(X_test)
-    #Predict scores so that samples can be ranked
-    if hasattr(model, "predict_proba"):
-        prediction_certainties_NDA = model.predict_proba(X_test)
-
-    elif hasattr(model, "decision_function"):
-        prediction_certainties_NDA = model.decision_function(X_test)
+        fig, axes = plt.subplots(nrows = length_axis_0, ncols= 2, sharex= True, sharey= False, figsize = (12,8)) 
 
     else:
-        print("Model doesn't have attribute: decision_function or predict_proba")
-
-    #Find which column in predictions to look at for ranking
-    class_index = np.where(model.classes_ == Target_Class)[0][0]
-
-    #Get the target column to rank by certainty
-    if prediction_certainties_NDA.ndim >1:
-        prediction_certainty_array = prediction_certainties_NDA[:, class_index]
-    else:
-        prediction_certainty_array = prediction_certainties_NDA
-
-
-    #Get indicies of predictions sorted by certainty of correct classification
-    sorted_certainty_indicies = np.argsort(prediction_certainty_array)
-    
-    #Rank the actual labels by certainty they are of class: "Target_Class"
-    sorted_actual_labels = y_test[sorted_certainty_indicies]
-    
-
-    class_prior = sum(y_test == Target_Class)/len(y_test)
-    
-
-    def Lift(Sorted_Labels_, Portion_Targeted_, Class_Prior_, Target_Class_):
-
-        #Work out how many samples we want to target
-        number_to_target = np.floor(Portion_Targeted_ * len(Sorted_Labels_))
-        number_to_target = int(number_to_target)
-
-        #Create boolean for who we correctly targeted
-        correctly_targeted_bool = (Sorted_Labels_[:number_to_target] == Target_Class_)
+        Estimators = np.array([Estimators])
+        fig, axes = plt.subplots(1,1, figsize = (12,8))
+        axes = np.array([axes])
         
-        #How many did we get correct
-        number_correctly_classified = np.sum(correctly_targeted_bool)
-        
+    for ax, Estimator in zip(axes.ravel(), Estimators):
 
-        #Calculate lift
-        lift_score = (number_correctly_classified)/(number_to_target*Class_Prior_) #Denominator is how many we would have got correct if random
+            #Fit the model
+            model = Estimator.fit(X_train,y_train)
 
-        return lift_score
+            #Get predicted classifications
+            predictions = model.predict(X_test)
+            #Predict scores so that samples can be ranked
+            if hasattr(model, "predict_proba"):
+                prediction_certainties_NDA = model.predict_proba(X_test)
 
-    #initialise list where lift scores go    
-    lift_scores_list = []   
-    
-    X_percent_targeted = np.arange(0,100, 100/Number_of_Splits)
+            elif hasattr(model, "decision_function"):
+                prediction_certainties_NDA = model.decision_function(X_test)
 
-    for i in X_percent_targeted:
-        portion = i+1/(Number_of_Splits)
-        lift = Lift(Sorted_Labels_ = sorted_actual_labels, Portion_Targeted_ = portion, Class_Prior_ = class_prior, Target_Class_= Target_Class)
+            else:
+                print("Model doesn't have attribute: decision_function or predict_proba")
 
-        lift_scores_list.append(lift)
-    
-    
-    plt.plot(X_percent_targeted, lift_scores_list, "r-")
-    
-    plt.xlabel("percent of of people Targeted")
-    plt.title("Lift Curve")
-    plt.ylabel("Lift")
-    plt.yticks(np.arange(max(lift_scores_list)+2))
-    plt.xticks(np.arange(0,100,10))
+            #Find which column in predictions to look at for ranking
+            class_index = np.where(model.classes_ == Target_Class)[0][0]
 
-    plt.show()    
+            #Get the target column to rank by certainty
+            if prediction_certainties_NDA.ndim >1:
+                prediction_certainty_array = prediction_certainties_NDA[:, class_index]
+            else:
+                prediction_certainty_array = prediction_certainties_NDA
 
 
+            #Get indicies of predictions sorted by certainty of correct classification
+            sorted_certainty_indicies = np.argsort(prediction_certainty_array)
+            
+            #Rank the actual labels by certainty they are of class: "Target_Class"
+            sorted_actual_labels = y_test[sorted_certainty_indicies]
+            
+
+            class_prior = sum(y_test == Target_Class)/len(y_test)
+            
+
+            def Lift(Sorted_Labels_, Portion_Targeted_, Class_Prior_, Target_Class_):
+
+                #Work out how many samples we want to target
+                number_to_target = np.floor(Portion_Targeted_ * len(Sorted_Labels_))
+                number_to_target = int(number_to_target)
+
+                #Create boolean for who we correctly targeted
+                correctly_targeted_bool = (Sorted_Labels_[:number_to_target] == Target_Class_)
+                
+                #How many did we get correct
+                number_correctly_classified = np.sum(correctly_targeted_bool)
+                
+
+                #Calculate lift
+                lift_score = (number_correctly_classified)/(number_to_target*Class_Prior_) #Denominator is how many we would have got correct if random
+
+                return lift_score
+
+            #initialise list where lift scores go    
+            lift_scores_list = []   
+            
+            X_percent_targeted = np.arange(0,100, 100/Number_of_Splits)
+
+            for i in X_percent_targeted:
+                portion = (i+1)/(100)
+                lift = Lift(Sorted_Labels_ = sorted_actual_labels, Portion_Targeted_ = portion, Class_Prior_ = class_prior, Target_Class_= Target_Class)
+
+                lift_scores_list.append(lift)
+            
+            
+            ax.plot(X_percent_targeted, lift_scores_list, "r-")
+            
+            ax.set_xlabel("Percentage of people Targeted")
+            ax.set_title("Lift Curve for: {}".format(Estimator))
+            ax.set_ylabel("Lift")
+            ax.set_yticks(np.arange(max(lift_scores_list)+2))
+            ax.set_xticks(np.arange(0,100,10))
+
+
+    return fig   
+
+
+def first_row_to_header(df):
+    new_header = df.iloc[0] #grab the first row for the header
+    df = df[1:].copy() #take the data less the header row
+    df.rename(columns = new_header, inplace=True) #set the header row as the df header
+    return df
